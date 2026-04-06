@@ -28,6 +28,10 @@ def run_command(cmd, description):
         return False
 
 def main():
+    # Change to script directory so relative paths work correctly
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(script_dir)
+    
     print_header("Hand Gesture Interactive App Setup")
     
     # Check Python version
