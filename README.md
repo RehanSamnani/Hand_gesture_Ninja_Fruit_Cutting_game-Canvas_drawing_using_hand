@@ -1,5 +1,27 @@
 # Hand Gesture Interactive Application
 
+## ⚡ Quick Start (2 Minutes)
+
+### TL;DR - Just Want to Play?
+```bash
+# 1. Clone this repository
+git clone https://github.com/yourusername/Ninja-Fruit-Like-Game-with-hand-gesture-and-opencv.git
+cd Ninja-Fruit-Like-Game-with-hand-gesture-and-opencv
+
+# 2. Run setup (Windows)
+setup.bat
+
+# 2. Run setup (macOS/Linux)
+python setup.py
+
+# 3. Play!
+python "Ninja Fruit with hand gesture.py"
+```
+
+**Need more help?** → See [QUICK_START.md](QUICK_START.md) or [INSTALLATION.md](INSTALLATION.md)
+
+---
+
 ## 🎮 Overview
 
 A **Python-based interactive application** that uses computer vision and real-time hand gesture recognition to provide two engaging modes: **Ninja Fruit Game** and **Drawing Mode**. The application leverages **MediaPipe** for real-time hand pose detection and **OpenCV** for image processing and visualization, creating an intuitive human-computer interface.
@@ -20,6 +42,7 @@ A **Python-based interactive application** that uses computer vision and real-ti
 - **Lives System**: Start with 15 lives; missing fruits costs one life
 - **Dynamic Speed**: Fruits fall faster and spawn more frequently as difficulty increases
 - **Visual Feedback**: Color-coded fruits, real-time HUD with Score/Lives/Level/FPS display
+- **Cutting Animations**: Impressive particle effects and "CUT!" text when fruits are cut
 - **Game Over Detection**: Game ends when lives reach zero
 
 ### 🎨 **Drawing Mode**

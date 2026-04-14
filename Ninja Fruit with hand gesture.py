@@ -38,6 +38,7 @@ slash_length = 19
 w = h = 0
 
 Fruits = []
+Fruit_Explosions = []  # Track cutting animations
 
 # Drawing Mode Variables
 drawing_mode_active = False
@@ -48,6 +49,7 @@ prev_point = None
 in_drawing = False
 draw_start_point = None
 brush_size = 3
+show_drawing_instructions = False  # Toggle instructions display
 
 # Color options: (B, G, R)
 COLORS = {
@@ -153,8 +155,8 @@ def draw_drawing_ui(frame, w, h, drawing_shape, drawing_color):
     color_name = [k for k, v in COLORS.items() if v == drawing_color][0] if drawing_color in COLORS.values() else "Custom"
     cv2.putText(frame, f"Color: {color_name}", (500, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, drawing_color, 1)
     
-    # Quick keys on right
-    cv2.putText(frame, "L=Line O=Circle F=Free | R/G/B/Y=Color | C=Clear M=Menu Q=Quit", 
+    # Quick keys on right - including H for help
+    cv2.putText(frame, "L=Line O=Circle F=Free | R/G/B/Y=Color | C=Clear | H=Help | M=Menu Q=Quit", 
                 (650, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 255), 1)
     
     return frame
@@ -213,15 +215,161 @@ def distance(a, b):
     return int(d)
 
 
+def create_fruit_explosion(position, color, particles=12):
+    """Create a fruit cutting explosion animation"""
+    explosion = {
+        "position": position,
+        "color": color,
+        "particles": [],
+        "creation_time": time.time()
+    }
+    
+    # Create particles that burst outward with more velocity
+    for i in range(particles):
+        angle = (360 / particles) * i
+        angle_rad = math.radians(angle)
+        velocity = (math.cos(angle_rad) * 8, math.sin(angle_rad) * 8)  # Increased from 5 to 8
+        explosion["particles"].append({
+            "pos": list(position),
+            "vel": velocity,
+            "size": random.randint(5, 12),  # Increased size
+            "age": 0
+        })
+    
+    return explosion
+
+
+def draw_fruit_explosions(img, explosions):
+    """Draw and update fruit cutting animations"""
+    current_time = time.time()
+    
+    for explosion in explosions[:]:
+        age = current_time - explosion["creation_time"]
+        
+        # Animation lasts 0.8 seconds (extended from 0.5)
+        if age > 0.8:
+            explosions.remove(explosion)
+            continue
+        
+        # Draw expanding circles animation
+        animation_progress = age / 0.8  # 0 to 1 over 0.8 seconds
+        
+        # Multiple expanding circles for more visibility
+        for circle_layer in range(3):
+            alpha_layer = 1 - (animation_progress + circle_layer * 0.2)
+            if alpha_layer > 0:
+                max_radius = int(Fruit_Size * (2 + circle_layer * 2) * animation_progress)
+                color_brightness = int(255 * alpha_layer)
+                circle_color = (
+                    min(255, explosion["color"][0] + 100),
+                    min(255, explosion["color"][1] + 100),
+                    min(255, explosion["color"][2] + 100)
+                )
+                cv2.circle(img, tuple(explosion["position"]), max_radius, circle_color, 2)
+        
+        # Draw particles - more visible
+        for particle in explosion["particles"]:
+            particle["pos"][0] += particle["vel"][0]
+            particle["pos"][1] += particle["vel"][1]
+            particle["age"] += 0.016  # Approximate frame time
+            
+            # Fade particles more gradually
+            particle_alpha = max(0, 1 - particle["age"] / 0.8)
+            if particle_alpha > 0:
+                size = max(2, particle["size"] - int(particle["age"] * 8))
+                # Make particles brighter
+                particle_color = (
+                    min(255, int(explosion["color"][0] * particle_alpha + 100)),
+                    min(255, int(explosion["color"][1] * particle_alpha + 100)),
+                    min(255, int(explosion["color"][2] * particle_alpha + 100))
+                )
+                cv2.circle(img, (int(particle["pos"][0]), int(particle["pos"][1])), 
+                          size, particle_color, -1)
+        
+        # Flash effect - bright white circle at cut point - more prominent
+        flash_radius = int(Fruit_Size * 1.5 * (1 - animation_progress))
+        flash_opacity = int(255 * (1 - animation_progress))
+        if flash_radius > 0 and flash_opacity > 0:
+            # Create a bright white flash overlay
+            overlay = img.copy()
+            cv2.circle(overlay, tuple(explosion["position"]), flash_radius, (255, 255, 255), -1)
+            cv2.addWeighted(overlay, 0.6, img, 0.4, 0, img)
+        
+        # Add "BOOM" or "CUT" text at cut point
+        if animation_progress < 0.3:  # Show text for first 30% of animation
+            text_opacity = 1 - (animation_progress / 0.3)
+            text_size = int(1 + text_opacity * 2)
+            cv2.putText(img, "CUT!", (explosion["position"][0] - 25, explosion["position"][1] - 20),
+                       cv2.FONT_HERSHEY_TRIPLEX, text_size, (0, 255, 255), 2)
+    
+    return img
+
+
+def draw_drawing_instructions(img, w, h):
+    """Draw full instructions overlay for drawing mode"""
+    overlay = img.copy()
+    cv2.rectangle(overlay, (0, 0), (w, h), (0, 0, 0), -1)
+    img = cv2.addWeighted(overlay, 0.7, img, 0.3, 0)
+    
+    # Title
+    title = "DRAWING MODE - INSTRUCTIONS"
+    title_size = cv2.getTextSize(title, cv2.FONT_HERSHEY_TRIPLEX, 1.2, 2)[0]
+    title_x = (w - title_size[0]) // 2
+    cv2.putText(img, title, (title_x, 80), cv2.FONT_HERSHEY_TRIPLEX, 1.2, (0, 255, 255), 2)
+    
+    # Instructions
+    instructions = [
+        "HAND GESTURES:",
+        "  • Open hand (spread fingers) = Move cursor / Preview position",
+        "  • Pinch (thumb + index finger) = Draw / Create shape",
+        "",
+        "SHAPE MODES:",
+        "  • Press L = Line Mode (pinch and drag to create lines)",
+        "  • Press O = Circle Mode (pinch and drag to set radius)",
+        "  • Press F = Free Drawing Mode (continuous freehand drawing)",
+        "",
+        "COLORS:",
+        "  • Press R = Red  |  Press G = Green",
+        "  • Press B = Blue  |  Press Y = Yellow",
+        "",
+        "OTHER CONTROLS:",
+        "  • Press C = Clear Canvas",
+        "  • Press H = Show/Hide Instructions (this screen)",
+        "  • Press M = Return to Menu",
+        "  • Press Q = Quit Application"
+    ]
+    
+    y_pos = 150
+    for line in instructions:
+        if line.startswith("  •"):
+            cv2.putText(img, line, (100, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 255), 1)
+        elif line == "":
+            pass  # Empty line for spacing
+        elif line.isupper():
+            cv2.putText(img, line, (50, y_pos), cv2.FONT_HERSHEY_DUPLEX, 0.8, (100, 255, 100), 2)
+        else:
+            cv2.putText(img, line, (100, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 255, 100), 1)
+        y_pos += 35
+    
+    # Bottom hint
+    hint = "Press H to close instructions or any other key to continue"
+    hint_size = cv2.getTextSize(hint, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1)[0]
+    hint_x = (w - hint_size[0]) // 2
+    cv2.putText(img, hint, (hint_x, h - 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 200), 2)
+    
+    return img
+
+
 def reset_game():
     """Reset all game variables"""
     global Score, Lives, Difficulty_level, game_Over, Fruits, Speed, Spawn_Rate, slash, next_Time_to_Spawn
-    global slash_Color
+    global slash_Color, Fruit_Explosions
     Score = 0
     Lives = 15
     Difficulty_level = 1
     game_Over = False
     Fruits.clear()
+    Fruit_Explosions.clear()
     Speed = [0, 5]
     Spawn_Rate = 1
     slash = np.array([[]], np.int32)
@@ -234,7 +382,7 @@ def reset_game():
 def play_game_mode(cap):
     """Main game loop for Ninja Fruit Game"""
     global Score, Lives, Difficulty_level, game_Over, Fruits, Speed, Spawn_Rate, slash, slash_Color
-    global curr_Frame, prev_Frame, next_Time_to_Spawn, w, h
+    global curr_Frame, prev_Frame, next_Time_to_Spawn, w, h, Fruit_Explosions
     
     reset_game()
     window_name = "Hand Gesture App"
@@ -270,6 +418,9 @@ def play_game_mode(cap):
                             if (d < Fruit_Size):
                                 Score = Score + 100
                                 slash_Color = fruit["Color"]
+                                # Create explosion animation when fruit is cut
+                                explosion = create_fruit_explosion(fruit["Curr_position"], fruit["Color"], particles=12)
+                                Fruit_Explosions.append(explosion)
                                 Fruits.remove(fruit)
 
         if Score % 1000 == 0 and Score != 0:
@@ -284,6 +435,9 @@ def play_game_mode(cap):
 
         slash_reshaped = slash.reshape((-1, 1, 2)) if len(slash) > 0 else np.array([[[0, 0]]], np.int32)
         cv2.polylines(img, [slash_reshaped], False, slash_Color, 15, 0)
+        
+        # Draw fruit cutting animations
+        img = draw_fruit_explosions(img, Fruit_Explosions)
 
         curr_Frame = time.time()
         delta_Time = curr_Frame - prev_Frame
@@ -340,10 +494,12 @@ def play_game_mode(cap):
 def play_drawing_mode(cap):
     """Drawing mode with hand gesture support - enhanced with shape modes"""
     global drawing_color, drawing_shape, prev_point, in_drawing, canvas, w, h, draw_start_point, brush_size
+    global show_drawing_instructions
     
     canvas = np.zeros((h, w, 3), dtype=np.uint8)
     prev_point = None
     draw_start_point = None
+    show_drawing_instructions = False  # Start with instructions hidden
     window_name = "Hand Gesture App"
     
     while True:
@@ -383,14 +539,13 @@ def play_drawing_mode(cap):
                         prev_point = index_pos
                         in_drawing = True
                     
-                    # Always update prev_point to current position for all modes
-                    prev_point = index_pos
-                    
                     if drawing_shape == "free":
                         # Freehand drawing - continuous line
                         if prev_point is not None and prev_point != index_pos:
                             cv2.line(canvas, prev_point, index_pos, drawing_color, 5)
                             cv2.line(img, prev_point, index_pos, drawing_color, 5)
+                        # Update previous point after drawing
+                        prev_point = index_pos
                     
                     elif drawing_shape == "line":
                         # Draw line from start to current position (update in real-time)
@@ -429,6 +584,10 @@ def play_drawing_mode(cap):
         # Draw UI (minimal, at top and bottom)
         img = draw_drawing_ui(img, w, h, drawing_shape, drawing_color)
         
+        # Draw instructions if requested
+        if show_drawing_instructions:
+            img = draw_drawing_instructions(img, w, h)
+        
         cv2.imshow(window_name, img)
         key = cv2.waitKey(5) & 0xFF
         
@@ -436,6 +595,8 @@ def play_drawing_mode(cap):
             canvas = np.zeros((h, w, 3), dtype=np.uint8)
             prev_point = None
             draw_start_point = None
+        elif key == ord('h'):  # Toggle instructions
+            show_drawing_instructions = not show_drawing_instructions
         elif key == ord('m'):  # Return to menu
             return "menu"
         elif key == ord('q'):  # Quit
